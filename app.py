@@ -75,8 +75,8 @@ if prompt := st.chat_input("Contoh: Berapa emisi kirim 10kg kain dari Jakarta ke
 
     with st.chat_message("assistant"):
         messages_for_ai = [
-            SystemMessage(content="Kamu adalah asisten hitung emisi. Jika kamu menggunakan Tools, WAJIB jelaskan hasil perhitungannya kepada user dalam kalimat lengkap.")
-        ]
+    SystemMessage(content="Kamu adalah asisten hitung emisi Torajamelo. Jika user salah ketik nama kota (typo), KOREKSI nama kota tersebut ke nama yang benar di Indonesia dalam jawabanmu. Jangan ulangi typo user.")
+]
         
         for i, m in enumerate(st.session_state.messages):
             if i == 0: continue 
