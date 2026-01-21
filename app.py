@@ -3,104 +3,117 @@ from langchain_groq import ChatGroq
 from langchain_core.tools import tool
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
 
-# --- 1. SETUP HALAMAN ---
-st.set_page_config(page_title="Torajamelo Carbon Auditor", page_icon="⚖️", layout="wide")
-st.title("⚖️ Torajamelo Carbon Auditor (Strict Mode)")
-st.caption("Menggunakan Standar DEFRA 2023 - Strict Compliance Check")
+# --- 1. SETUP ---
+st.set_page_config(page_title="Torajamelo Carbon Auditor", page_icon="🚫", layout="wide")
+st.title("🚫 Torajamelo Strict Auditor")
+st.caption("Zero Tolerance for Assumptions. Data must be explicit.")
 
-# --- 2. CEK KUNCI ---
 if "GROQ_API_KEY" in st.secrets:
     api_key = st.secrets["GROQ_API_KEY"]
 else:
     st.error("🚨 API Key belum disetting!")
     st.stop()
 
-# --- 3. DATABASE EMISI (THE SOURCE OF TRUTH) ---
-# Kita perbanyak variasi agar mengakomodir "Pesawat Boros"
+# --- 2. DATABASE EMISI (STANDAR DEFRA 2023) ---
 FAKTOR_EMISI = {
-    # DARAT
-    "truk_diesel_kecil": 0.00028, 
-    "truk_diesel_besar": 0.00008,
+    # Key harus spesifik agar AI tidak asal pilih
+    "truk_diesel": 0.00028,
     "mobil_box": 0.00032,
-    "kereta_api": 0.00003,
-    
-    # UDARA (Logika Boros vs Irit)
-    # Short Haul (< 400km) = Sangat Boros (Boros di Takeoff/Landing)
-    "pesawat_pendek_boros": 0.00254, 
-    # Long Haul (> 3700km) = Lebih Efisien (Cruising phase lama)
-    "pesawat_jauh_efisien": 0.00190, 
-    
-    # LAUT
-    "kapal_cargo": 0.00001,
+    "kereta_api_barang": 0.00003, # Khusus barang
+    "pesawat_jarak_pendek": 0.00254, # < 400km (Boros)
+    "pesawat_jarak_jauh": 0.00190,   # > 3000km (Efisien)
+    "kapal_laut_kargo": 0.00001
 }
 
-# --- 4. DEFINISI ALAT (TOOLS) ---
-
+# --- 3. ALAT DENGAN VALIDASI LAPIS BAJA ---
 @tool
-def hitung_emisi_logistik_presisi(berat_kg: float, jarak_km: float, jenis_kendaraan: str):
+def validasi_dan_hitung(berat_kg: float = 0, jarak_km: float = 0, jenis_kendaraan: str = ""):
     """
-    Menghitung emisi logistik.
+    Alat tunggal untuk menghitung emisi.
     
-    CRITICAL RULE:
-    Parameter 'jenis_kendaraan' HARUS SAMA PERSIS dengan salah satu key di database:
-    ['truk_diesel_kecil', 'truk_diesel_besar', 'mobil_box', 'kereta_api', 
-     'pesawat_pendek_boros', 'pesawat_jauh_efisien', 'kapal_cargo']
-     
-    JIKA USER TIDAK SPESIFIK (misal cuma bilang 'pesawat'), KEMBALIKAN ERROR.
+    ATURAN KERAS (HARD RULES):
+    1. Parameter 'berat_kg' TIDAK BOLEH 0. Jika user tidak sebut angka, isi 0.
+    2. Parameter 'jarak_km' TIDAK BOLEH 0.
+    3. Parameter 'jenis_kendaraan' harus persis salah satu dari:
+       ['truk_diesel', 'mobil_box', 'kereta_api_barang', 'pesawat_jarak_pendek', 'pesawat_jarak_jauh', 'kapal_laut_kargo']
+    
+    JANGAN MENCOBA MENEBAK. KIRIM APA ADANYA DARI USER.
     """
     
-    # Normalisasi input
-    kunci = jenis_kendaraan.lower().replace(" ", "_")
+    errors = []
     
-    # --- LOGIC BARU: STRICT VALIDATION ---
-    # Jika tidak ada di database, kita TOLAK perhitungannya.
-    if kunci not in FAKTOR_EMISI:
-        # Kembalikan pesan error ke AI, supaya AI nanya balik ke User
-        return (f"GAGAL: Jenis kendaraan '{jenis_kendaraan}' tidak ditemukan di database standar. "
-                f"Tanyakan ke user mau pakai yg mana: {list(FAKTOR_EMISI.keys())}")
+    # Validasi 1: Berat
+    if berat_kg <= 0:
+        errors.append("❌ Berat barang (kg) belum diisi.")
+        
+    # Validasi 2: Jarak
+    if jarak_km <= 0:
+        errors.append("❌ Jarak tempuh (km) belum diketahui.")
+        
+    # Validasi 3: Jenis Kendaraan & Pencocokan Ketat
+    kunci_ditemukan = None
+    input_clean = jenis_kendaraan.lower().replace(" ", "_")
     
-    faktor = FAKTOR_EMISI[kunci]
-    total_emisi = berat_kg * jarak_km * faktor
+    # Cek apakah input user cocok dengan database
+    if input_clean in FAKTOR_EMISI:
+        kunci_ditemukan = input_clean
+    else:
+        # Jika tidak cocok persis, cek apakah mengandung kata kunci ambigu
+        if "pesawat" in input_clean:
+            errors.append("❌ Jenis Pesawat ambigu. Pilih: 'pesawat_jarak_pendek' atau 'pesawat_jarak_jauh'?")
+        elif "kereta" in input_clean and "barang" not in input_clean:
+             # Paksa user confirm kereta barang, bukan kereta penumpang
+            errors.append("❌ Jenis Kereta ambigu. Apakah maksud Anda 'kereta_api_barang'?")
+        elif "truk" in input_clean and "diesel" not in input_clean:
+            errors.append("❌ Jenis Truk ambigu. Apakah maksud Anda 'truk_diesel'?")
+        else:
+            errors.append(f"❌ Kendaraan '{jenis_kendaraan}' tidak dikenal di database DEFRA.")
+
+    # KEPUTUSAN FINAL
+    if errors:
+        return "\n".join(errors) + "\n\nMohon lengkapi data di atas agar saya bisa menghitung."
+    
+    # Jika lolos semua validasi, baru hitung
+    faktor = FAKTOR_EMISI[kunci_ditemukan]
+    total = berat_kg * jarak_km * faktor
     
     return {
-        "status": "VALID",
-        "jenis": kunci,
-        "input": f"{berat_kg}kg x {jarak_km}km",
-        "faktor_emisi": f"{faktor} kgCO2e/kg.km",
-        "total_emisi_kgCO2e": round(total_emisi, 4)
+        "status": "APPROVED",
+        "detail": f"{berat_kg}kg x {jarak_km}km x {kunci_ditemukan}",
+        "faktor": faktor,
+        "total_emisi_kgCO2e": round(total, 4)
     }
 
-tools = [hitung_emisi_logistik_presisi]
+tools = [validasi_dan_hitung]
 
-# --- 5. OTAK AI (AUDITOR PERSONA) ---
+# --- 4. OTAK AI (Strict Mode) ---
 llm = ChatGroq(
     temperature=0, 
     model="llama-3.3-70b-versatile", 
     api_key=api_key
 ).bind_tools(tools)
 
-# --- 6. INTERFACE ---
+# --- 5. UI ---
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
-        {"role": "assistant", "content": "Halo. Saya Auditor Torajamelo. Sebutkan detail pengiriman (Berat, Jarak, Jenis Kendaraan Spesifik)."}
+        {"role": "assistant", "content": "Sistem Auditor Siap. Saya tidak akan menghitung jika data Berat, Jarak, dan Jenis Kendaraan tidak lengkap."}
     ]
 
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
 
-if prompt := st.chat_input("Contoh: Kirim kain ke Jakarta naik pesawat"):
+if prompt := st.chat_input("Contoh: Kirim kain ke Jakarta"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.chat_message("user").write(prompt)
 
     with st.chat_message("assistant"):
+        # System Prompt: DILARANG MENGHITUNG MANUAL
         messages_for_ai = [
             SystemMessage(content="""
-            Kamu adalah Auditor Karbon yang SANGAT KAKU dan TELITI.
-            
-            ATURAN UTAMA:
-            1. Jika user bilang "naik pesawat", JANGAN LANGSUNG HITUNG. Coba panggil tool dengan input "pesawat".
-            2. Jika tool mengembalikan ERROR/GAGAL, kamu WAJIB bertanya balik ke user untuk memilih opsi yang diberikan tool.
-            3. Jangan pernah berasumsi.
+            Kamu adalah Auditor Galak.
+            1. JANGAN PERNAH menghitung manual pakai otakmu. WAJIB pakai tool `validasi_dan_hitung`.
+            2. Jangan pernah menebak berat atau jarak. Jika user tidak sebut angka, kirim 0 ke tool.
+            3. Jika Tool mengembalikan error (tanda ❌), bacakan error tersebut ke user dan minta kelengkapan data.
             """)
         ]
         
@@ -113,29 +126,25 @@ if prompt := st.chat_input("Contoh: Kirim kain ke Jakarta naik pesawat"):
             response = llm.invoke(messages_for_ai)
             
             if response.tool_calls:
-                status_container = st.status("🔍 Verifikasi Database...", expanded=True)
+                status_container = st.status("🕵️ Memeriksa Kelengkapan Data...", expanded=True)
                 tool_messages = []
-                force_stop = False
                 
                 for tool_call in response.tool_calls:
-                    tool_name = tool_call["name"]
-                    tool_args = tool_call["args"]
+                    # Tampilkan apa yang dikirim AI ke Tool (untuk debugging user)
+                    args = tool_call["args"]
+                    status_container.write(f"**Data Diterima:** Berat={args.get('berat_kg',0)}, Jarak={args.get('jarak_km',0)}, Jenis='{args.get('jenis_kendaraan','')}'")
                     
-                    status_container.write(f"Cek Spesifikasi: `{tool_args.get('jenis_kendaraan')}`")
+                    selected_tool = {t.name: t for t in tools}[tool_call["name"]]
+                    tool_output = selected_tool.invoke(args)
                     
-                    selected_tool = {t.name: t for t in tools}[tool_name]
-                    tool_output = selected_tool.invoke(tool_args)
-                    
-                    # Cek apakah tool menolak input?
-                    if isinstance(tool_output, str) and "GAGAL" in tool_output:
-                        status_container.error("❌ Spesifikasi tidak lengkap!")
-                        status_container.write("Meminta klarifikasi user...")
+                    if isinstance(tool_output, str) and "❌" in tool_output:
+                        status_container.error("Data Tidak Lengkap / Ambigu!")
                     else:
-                        status_container.write("✅ Data Valid.")
+                        status_container.success("Data Valid! Menghitung...")
                     
                     tool_messages.append(ToolMessage(tool_call_id=tool_call["id"], content=str(tool_output)))
                 
-                status_container.update(label="Proses Selesai", state="complete", expanded=False)
+                status_container.update(label="Validasi Selesai", state="complete", expanded=False)
 
                 messages_for_ai.append(response) 
                 messages_for_ai.extend(tool_messages)
@@ -149,4 +158,4 @@ if prompt := st.chat_input("Contoh: Kirim kain ke Jakarta naik pesawat"):
                 st.session_state.messages.append({"role": "assistant", "content": response.content})
 
         except Exception as e:
-            st.error(f"System Error: {str(e)}")
+            st.error(f"Error: {str(e)}")
