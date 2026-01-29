@@ -2,7 +2,7 @@ import streamlit as st
 import datetime
 
 # --- 1. KONFIGURASI SISTEM AUDIT ---
-st.set_page_config(page_title="ESG Auditor System By Rezky", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="ESG Auditor System", page_icon="⚖️", layout="wide")
 
 # Styling agar terlihat seperti Software Pemerintah/Enterprise
 st.markdown("""
@@ -14,7 +14,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">⚖️ ESG & Carbon Audit System</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">⚖️ ESG & Carbon Audit System By Rezky</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-header">Compliance Standard: GHG Protocol Corporate Standard & ISO 14064-1</div>', unsafe_allow_html=True)
 st.markdown("---")
 
